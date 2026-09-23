@@ -1,0 +1,108 @@
+----------------------------------------------------------------------------------------------------
+- GCP デプロイ 手順
+----------------------------------------------------------------------------------------------------
+
+#-------------------------------------------------
+# 前提
+#-------------------------------------------------
+
+プロジェクトID：gcp-sample-project-509110
+
+ネットワークポリシー：my-valkey-policy
+
+valkeyインスタンス名：my-valkey
+
+
+
+#-------------------------------------------------
+# コマンド
+#-------------------------------------------------
+
+# ログイン
+gcloud auth login
+
+# ログイン確認
+gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin https://asia-northeast1-docker.pkg.dev
+
+# 必要なネットワークAPIの有効化
+gcloud services enable \
+    networkconnectivity.googleapis.com \
+    serviceconsumermanagement.googleapis.com \
+    vpcaccess.googleapis.com \
+    run.googleapis.com \
+    artifactregistry.googleapis.com \
+    cloudbuild.googleapis.com
+
+# サービス接続ポリシーの作成（"my-valkey-policy"という名前で作成）
+gcloud network-connectivity service-connection-policies create my-valkey-policy \
+    --network=default \
+    --region=asia-northeast1 \
+    --service-class=gcp-memorystore \
+    --subnets=default
+
+# valkeyを作成（"my-valkey"という名前で作成、数分かかる）
+gcloud memorystore instances create my-valkey \
+    --location=asia-northeast1 \
+    --node-type=shared-core-nano \
+    --shard-count=1 \
+    --replica-count=0 \
+    --mode=cluster-disabled \
+    --endpoints='[{"connections": [{"pscAutoConnection": {"network": "projects/gcp-sample-project-509110/global/networks/default", "projectId": "gcp-sample-project-509110"}}]}]'
+
+# IPアドレスを確認
+gcloud memorystore instances describe my-valkey --location=asia-northeast1
+
+# ビルド（サーバ向け） + タグ付け
+docker build --platform linux/amd64 -t asia-northeast1-docker.pkg.dev/gcp-sample-project-509110/gcp-sample-repo/web-app:latest .
+
+# "Artifact Registry"にリポジトリを新規作成する（既に作成済みの場合は不要）
+gcloud artifacts repositories create gcp-sample-repo \
+    --repository-format=docker \
+    --location=asia-northeast1 \
+    --description="Docker repository for gcp-sample"
+
+# DockertイメージをGCPにPUSHする
+docker push asia-northeast1-docker.pkg.dev/gcp-sample-project-509110/gcp-sample-repo/web-app:latest
+
+# Cloud Runにデプロイ（valkeyのIPアドレスを指定、数分かかる）
+gcloud run deploy gcp-sample-app \
+    --source . \
+    --region asia-northeast1 \
+    --network=default \
+    --subnet=default \
+    --set-env-vars VALKEY_HOST=10.146.0.8,VALKEY_PORT=6379,SESSION_SECRET=my-secure-session-secret-key-123 \
+    --allow-unauthenticated
+
+
+----------------------------------------------------------------------------------------------------
+- サービス停止 / 削除
+----------------------------------------------------------------------------------------------------
+
+# Cloud Run サービスの削除
+gcloud run services delete gcp-sample-app --region=asia-northeast1 --quiet
+
+# Valkey インスタンスの削除
+gcloud memorystore instances delete my-valkey --location=asia-northeast1 --quiet
+
+# ネットワーク接続ポリシーの削除
+gcloud network-connectivity service-connection-policies delete my-valkey-policy \
+    --region=asia-northeast1 \
+    --quiet
+
+# Artifact Registryにアップロードしたdockerイメージを削除
+gcloud artifacts docker images delete \
+    asia-northeast1-docker.pkg.dev/gcp-sample-project-509110/gcp-sample-repo/web-app:latest \
+    --delete-tags \
+    --quiet
+
+
+----------------------------------------------------------------------------------------------------
+- GCP 再起動
+----------------------------------------------------------------------------------------------------
+gcloud memorystore instances create my-valkey \
+    --location=asia-northeast1 \
+    --node-type=shared-core-nano \
+    --shard-count=1 \
+    --replica-count=0 \
+    --mode=cluster-disabled \
+    --endpoints='[{"connections": [{"pscAutoConnection": {"network": "projects/gcp-sample-project-509110/global/networks/default", "projectId": "gcp-sample-project-509110"}}]}]'
