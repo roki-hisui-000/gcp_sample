@@ -1,13 +1,25 @@
 services:
-  app:
+  frontend:
     build:
-      context: .
+      context: ./frontend
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
     environment:
+      - BACKEND_URL=http://backend:8080
+    depends_on:
+      - backend
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8080"
+    environment:
       - VALKEY_HOST=valkey
       - VALKEY_PORT=6379
+      - SESSION_SECRET=gcp-sample-default-session-secret-key
     depends_on:
       - valkey
 
@@ -15,4 +27,5 @@ services:
     image: valkey/valkey:8
     ports:
       - "6379:6379"
+
 

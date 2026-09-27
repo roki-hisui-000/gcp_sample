@@ -103,14 +103,6 @@ app.post('/api/message', async (req, res) => {
   res.json({ reply });
 });
 
-// 静的ファイルの配信
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Reactのルーティング対応（SPA用フォールバック）
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });

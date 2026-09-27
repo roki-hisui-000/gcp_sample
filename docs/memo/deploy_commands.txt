@@ -1,5 +1,5 @@
 ----------------------------------------------------------------------------------------------------
-- GCP デプロイ 手順
+- GCP デプロイ 手順（2コンテナ分割構成版）
 ----------------------------------------------------------------------------------------------------
 
 #-------------------------------------------------
@@ -7,15 +7,12 @@
 #-------------------------------------------------
 
 プロジェクトID：gcp-sample-project-509110
-
 ネットワークポリシー：my-valkey-policy
-
 valkeyインスタンス名：my-valkey
-
-
+リージョン：asia-northeast1
 
 #-------------------------------------------------
-# コマンド
+# 1. ログイン & APIの有効化
 #-------------------------------------------------
 
 # ログイン
@@ -33,14 +30,18 @@ gcloud services enable \
     artifactregistry.googleapis.com \
     cloudbuild.googleapis.com
 
-# サービス接続ポリシーの作成（"my-valkey-policy"という名前で作成）
+#-------------------------------------------------
+# 2. VPC接続とValkey（Memorystore）の準備
+#-------------------------------------------------
+
+# サービス接続ポリシーの作成（既に存在する場合はエラーが出ますがスキップして問題ありません）
 gcloud network-connectivity service-connection-policies create my-valkey-policy \
     --network=default \
     --region=asia-northeast1 \
     --service-class=gcp-memorystore \
     --subnets=default
 
-# valkeyを作成（"my-valkey"という名前で作成、数分かかる）
+# Valkeyインスタンスを作成（数分かかる、既に存在する場合はスキップ）
 gcloud memorystore instances create my-valkey \
     --location=asia-northeast1 \
     --node-type=shared-core-nano \
@@ -49,39 +50,80 @@ gcloud memorystore instances create my-valkey \
     --mode=cluster-disabled \
     --endpoints='[{"connections": [{"pscAutoConnection": {"network": "projects/gcp-sample-project-509110/global/networks/default", "projectId": "gcp-sample-project-509110"}}]}]'
 
-# IPアドレスを確認
+# ⚠️ 非常に重要 ⚠️
+# インスタンスの詳細情報を取得し、必ず「PRIMARY」ノード의 IPアドレスを控えてください。
+# 「READER」ノードのIPは読み取り専用のため、セッションの書き込み（ログイン）時にエラー500になります。
 gcloud memorystore instances describe my-valkey --location=asia-northeast1
 
-# ビルド（サーバ向け） + タグ付け
-docker build --platform linux/amd64 -t asia-northeast1-docker.pkg.dev/gcp-sample-project-509110/gcp-sample-repo/web-app:latest .
+# 出力例（"CONNECTION_TYPE_PRIMARY" の下にある ipAddress を確認すること）：
+# connections:
+# - pscAutoConnection:
+#     connectionType: CONNECTION_TYPE_PRIMARY
+#     ipAddress: 10.146.0.10  <-- これを控える
 
-# "Artifact Registry"にリポジトリを新規作成する（既に作成済みの場合は不要）
+#-------------------------------------------------
+# 3. Dockerリポジトリの作成（初回のみ）
+#-------------------------------------------------
+
+# "Artifact Registry"にリポジトリを新規作成する
 gcloud artifacts repositories create gcp-sample-repo \
     --repository-format=docker \
     --location=asia-northeast1 \
     --description="Docker repository for gcp-sample"
 
-# DockertイメージをGCPにPUSHする
-docker push asia-northeast1-docker.pkg.dev/gcp-sample-project-509110/gcp-sample-repo/web-app:latest
+#-------------------------------------------------
+# 4. Backend (APIサーバー) のビルド・PUSH・デプロイ
+#-------------------------------------------------
 
-# Cloud Runにデプロイ（valkeyのIPアドレスを指定、数分かかる）
-gcloud run deploy gcp-sample-app \
-    --source . \
+# ビルド（本番環境向け linux/amd64）
+docker build --platform linux/amd64 -t asia-northeast1-docker.pkg.dev/gcp-sample-project-509110/gcp-sample-repo/backend:latest ./backend
+
+# PUSH
+docker push asia-northeast1-docker.pkg.dev/gcp-sample-project-509110/gcp-sample-repo/backend:latest
+
+# Cloud Runへデプロイ（ValkeyのPRIMARYノードのIPを指定） ⭐️VALKEY_HOSTに指定するIPアドレスは先ほど取得したものを指定⭐️
+# デプロイ後に表示される "Service URL" をコピーして控えてください（Frontendのデプロイで使います）。
+gcloud run deploy gcp-sample-backend \
+    --image asia-northeast1-docker.pkg.dev/gcp-sample-project-509110/gcp-sample-repo/backend:latest \
     --region asia-northeast1 \
     --network=default \
     --subnet=default \
-    --set-env-vars VALKEY_HOST=10.146.0.8,VALKEY_PORT=6379,SESSION_SECRET=my-secure-session-secret-key-123 \
+    --set-env-vars VALKEY_HOST=10.146.0.15,VALKEY_PORT=6379,SESSION_SECRET=my-secure-session-secret-key-123 \
     --allow-unauthenticated
 
+#-------------------------------------------------
+# 5. Frontend (Gateway/プロキシ兼静的配信) のビルド・PUSH・デプロイ
+#-------------------------------------------------
 
-----------------------------------------------------------------------------------------------------
-- サービス停止 / 削除
-----------------------------------------------------------------------------------------------------
+# ビルド（本番環境向け linux/amd64）
+docker build --platform linux/amd64 -t asia-northeast1-docker.pkg.dev/gcp-sample-project-509110/gcp-sample-repo/frontend:latest ./frontend
 
-# Cloud Run サービスの削除
-gcloud run services delete gcp-sample-app --region=asia-northeast1 --quiet
+# PUSH
+docker push asia-northeast1-docker.pkg.dev/gcp-sample-project-509110/gcp-sample-repo/frontend:latest
 
-# Valkey インスタンスの削除
+# Cloud Runへデプロイ（BACKEND_URLに上記でコピーしたバックエンドのサービスURLを指定）
+# フロントエンドは直接データベースに触らないため、VPCネットワークの設定（--network, --subnet）は不要です。
+gcloud run deploy gcp-sample-frontend \
+    --image asia-northeast1-docker.pkg.dev/gcp-sample-project-509110/gcp-sample-repo/frontend:latest \
+    --region asia-northeast1 \
+    --set-env-vars BACKEND_URL=https://gcp-sample-backend-485401255876-an.a.run.app \
+    --allow-unauthenticated
+
+#-------------------------------------------------
+# 6. 疎通・動作確認方法
+#-------------------------------------------------
+# デプロイしたフロントエンドのURLにブラウザからアクセスします。
+# ログインが成功し、メッセージが送信されれば、2コンテナの連携は完璧です。
+
+#----------------------------------------------------------------------------------------------------
+# - サービス停止 / 削除
+#----------------------------------------------------------------------------------------------------
+
+# Cloud Run サービスの削除 (2つ)
+gcloud run services delete gcp-sample-frontend --region=asia-northeast1 --quiet
+gcloud run services delete gcp-sample-backend --region=asia-northeast1 --quiet
+
+# Valkey インスタンスの削除（数分かかる）
 gcloud memorystore instances delete my-valkey --location=asia-northeast1 --quiet
 
 # ネットワーク接続ポリシーの削除
@@ -91,18 +133,11 @@ gcloud network-connectivity service-connection-policies delete my-valkey-policy 
 
 # Artifact Registryにアップロードしたdockerイメージを削除
 gcloud artifacts docker images delete \
-    asia-northeast1-docker.pkg.dev/gcp-sample-project-509110/gcp-sample-repo/web-app:latest \
+    asia-northeast1-docker.pkg.dev/gcp-sample-project-509110/gcp-sample-repo/frontend:latest \
     --delete-tags \
     --quiet
 
-
-----------------------------------------------------------------------------------------------------
-- GCP 再起動
-----------------------------------------------------------------------------------------------------
-gcloud memorystore instances create my-valkey \
-    --location=asia-northeast1 \
-    --node-type=shared-core-nano \
-    --shard-count=1 \
-    --replica-count=0 \
-    --mode=cluster-disabled \
-    --endpoints='[{"connections": [{"pscAutoConnection": {"network": "projects/gcp-sample-project-509110/global/networks/default", "projectId": "gcp-sample-project-509110"}}]}]'
+gcloud artifacts docker images delete \
+    asia-northeast1-docker.pkg.dev/gcp-sample-project-509110/gcp-sample-repo/backend:latest \
+    --delete-tags \
+    --quiet
