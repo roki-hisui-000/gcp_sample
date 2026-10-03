@@ -83,13 +83,23 @@ docker push asia-northeast1-docker.pkg.dev/gcp-sample-project-509110/gcp-sample-
 
 # Cloud Runへデプロイ（ValkeyのPRIMARYノードのIPを指定） ⭐️VALKEY_HOSTに指定するIPアドレスは先ほど取得したものを指定⭐️
 # デプロイ後に表示される "Service URL" をコピーして控えてください（Frontendのデプロイで使います）。
+# ⚠️ サービス間認証を行うため `--no-allow-unauthenticated`（認証必須）でデプロイします。
 gcloud run deploy gcp-sample-backend \
     --image asia-northeast1-docker.pkg.dev/gcp-sample-project-509110/gcp-sample-repo/backend:latest \
     --region asia-northeast1 \
     --network=default \
     --subnet=default \
-    --set-env-vars VALKEY_HOST=10.146.0.15,VALKEY_PORT=6379,SESSION_SECRET=my-secure-session-secret-key-123 \
-    --allow-unauthenticated
+    --set-env-vars VALKEY_HOST=10.146.0.17,VALKEY_PORT=6379,SESSION_SECRET=my-secure-session-secret-key-123 \
+    --no-allow-unauthenticated
+
+# ⭐️ Frontend からのみ Backend へのアクセスを許可するため、IAM権限を付与します。
+# プロジェクト番号を取得して、デフォルトのCompute Engineサービスアカウントに起動元権限を付与
+PROJECT_NUMBER=$(gcloud projects describe gcp-sample-project-509110 --format="value(projectNumber)")
+
+gcloud run services add-iam-policy-binding gcp-sample-backend \
+    --region=asia-northeast1 \
+    --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+    --role="roles/run.invoker"
 
 #-------------------------------------------------
 # 5. Frontend (Gateway/プロキシ兼静的配信) のビルド・PUSH・デプロイ
@@ -141,3 +151,14 @@ gcloud artifacts docker images delete \
     asia-northeast1-docker.pkg.dev/gcp-sample-project-509110/gcp-sample-repo/backend:latest \
     --delete-tags \
     --quiet
+
+
+----------------------------------------------------------------------------------------------------
+- ローカル
+----------------------------------------------------------------------------------------------------
+
+# ビルド & コンテナ起動
+docker compose up -d ---build
+
+# コンテナ停止
+docker compose down
