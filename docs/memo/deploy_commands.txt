@@ -42,12 +42,17 @@ gcloud network-connectivity service-connection-policies create my-valkey-policy 
     --subnets=default
 
 # Valkeyインスタンスを作成（数分かかる、既に存在する場合はスキップ）
+# ⭐️ 永続化を有効化 (--persistence-config-mode=RDB) して作成します。
+# ⭐️ 作成所要時間: 約10分〜15分
+# ⚠️ インスタンスが起動している間のみ時間割課金が発生します (月額約3,300円目安)。
+# ⚠️ 検証が終わったら必ず本ファイル末尾の「サービス停止/削除」を実行して削除してください (削除するとデータは消えます)。
 gcloud memorystore instances create my-valkey \
     --location=asia-northeast1 \
     --node-type=shared-core-nano \
     --shard-count=1 \
     --replica-count=0 \
     --mode=cluster-disabled \
+    --persistence-config-mode=RDB \
     --endpoints='[{"connections": [{"pscAutoConnection": {"network": "projects/gcp-sample-project-509110/global/networks/default", "projectId": "gcp-sample-project-509110"}}]}]'
 
 # ⚠️ 非常に重要 ⚠️
@@ -157,8 +162,11 @@ gcloud artifacts docker images delete \
 - ローカル
 ----------------------------------------------------------------------------------------------------
 
-# ビルド & コンテナ起動
-docker compose up -d ---build
+# ビルド & コンテナ起動（ValkeyのAOF/RDB永続化が有効になり、コンテナを停止してもデータが残ります）
+docker compose up -d --build
 
 # コンテナ停止
 docker compose down
+
+# コンテナ停止 & 永続化した名前データ・セッションデータもろとも完全に初期化したい場合
+docker compose down -v

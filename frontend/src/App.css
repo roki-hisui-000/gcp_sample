@@ -222,3 +222,51 @@
   opacity: 0.7;
 }
 
+/* エラーメッセージ用のスタイル */
+.error-message-box {
+  background-color: #fca5a5;
+  color: #7f1d1d;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  border: 1px solid #f87171;
+  font-size: 0.9rem;
+  margin-bottom: 1.5rem;
+  text-align: center;
+  animation: shake 0.3s ease-in-out;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+/* 画面切り替えリンクのスタイル */
+.toggle-screen-link {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #374151;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.toggle-screen-link a {
+  color: #10b981;
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s, text-decoration 0.2s;
+}
+
+.toggle-screen-link a:hover {
+  color: #34d399;
+  text-decoration: underline;
+}
+
+.register-prompt {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #9ca3af;
+}
+

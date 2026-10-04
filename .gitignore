@@ -1,0 +1,11 @@
+# 依存関係（Node.js のパッケージ）
+node_modules/
+frontend/node_modules/
+
+# ビルド生成物
+dist/
+frontend/dist/
+
+# OS固有の不要なファイル
+.DS_Store
+Thumbs.db

@@ -71,16 +71,54 @@ app.get('/api/user', (req, res) => {
   res.json({ loggedIn: false });
 });
 
-// 2. 名前登録（ログイン）API
-app.post('/api/login', (req, res) => {
+// 2. ユーザー登録API (新規作成)
+app.post('/api/register', async (req, res) => {
   const { username } = req.body;
   if (!username || !username.trim()) {
-    return res.status(400).json({ error: 'Name is required' });
+    return res.status(400).json({ error: '名前を入力してください。' });
   }
 
-  // セッション（Valkey）にユーザー名を保存
-  req.session.username = username.trim();
-  res.json({ success: true, username: req.session.username });
+  const trimmedName = username.trim();
+
+  try {
+    // ValkeyのSet型で登録済みユーザーを確認
+    const exists = await valkey.sismember('registered_users', trimmedName);
+    if (exists) {
+      return res.status(400).json({ error: 'この名前はすでに登録されています。' });
+    }
+
+    // 新規登録
+    await valkey.sadd('registered_users', trimmedName);
+    res.json({ success: true, username: trimmedName });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: '登録処理中にエラーが発生しました。' });
+  }
+});
+
+// 3. 名前ログインAPI (変更)
+app.post('/api/login', async (req, res) => {
+  const { username } = req.body;
+  if (!username || !username.trim()) {
+    return res.status(400).json({ error: '名前を入力してください。' });
+  }
+
+  const trimmedName = username.trim();
+
+  try {
+    // ValkeyのSet型で登録済みユーザーを確認
+    const exists = await valkey.sismember('registered_users', trimmedName);
+    if (!exists) {
+      return res.status(401).json({ error: 'この名前は登録されていません。新規登録してください。' });
+    }
+
+    // セッション（Valkey）にユーザー名を保存
+    req.session.username = trimmedName;
+    res.json({ success: true, username: req.session.username });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'ログイン処理中にエラーが発生しました。' });
+  }
 });
 
 // 3. メッセージ受信用API
