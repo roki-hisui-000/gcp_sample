@@ -89,7 +89,7 @@ gcloud run deploy gcp-sample-backend \
     --region asia-northeast1 \
     --network=default \
     --subnet=default \
-    --set-env-vars VALKEY_HOST=10.146.0.17,VALKEY_PORT=6379,SESSION_SECRET=my-secure-session-secret-key-123 \
+    --set-env-vars VALKEY_HOST=10.146.0.20,VALKEY_PORT=6379,SESSION_SECRET=my-secure-session-secret-key-123 \
     --no-allow-unauthenticated
 
 # ⭐️ Frontend からのみ Backend へのアクセスを許可するため、IAM権限を付与します。
@@ -111,12 +111,12 @@ docker build --platform linux/amd64 -t asia-northeast1-docker.pkg.dev/gcp-sample
 # PUSH
 docker push asia-northeast1-docker.pkg.dev/gcp-sample-project-509110/gcp-sample-repo/frontend:latest
 
-# Cloud Runへデプロイ（BACKEND_URLに上記でコピーしたバックエンドのサービスURLを指定）
+# Cloud Runへデプロイ（⚠️BACKEND_URLに上記でコピーしたバックエンドのサービスURLを指定⚠️）
 # フロントエンドは直接データベースに触らないため、VPCネットワークの設定（--network, --subnet）は不要です。
 gcloud run deploy gcp-sample-frontend \
     --image asia-northeast1-docker.pkg.dev/gcp-sample-project-509110/gcp-sample-repo/frontend:latest \
     --region asia-northeast1 \
-    --set-env-vars BACKEND_URL=https://gcp-sample-backend-485401255876-an.a.run.app \
+    --set-env-vars BACKEND_URL=https://gcp-sample-backend-485401255876.asia-northeast1.run.app \
     --allow-unauthenticated
 
 #-------------------------------------------------
