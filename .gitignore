@@ -9,3 +9,6 @@ frontend/dist/
 # OS固有の不要なファイル
 .DS_Store
 Thumbs.db
+
+# GCPの認証情報
+key.json

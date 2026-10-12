@@ -11,15 +11,19 @@
 valkeyインスタンス名：my-valkey
 リージョン：asia-northeast1
 
+
 #-------------------------------------------------
 # 1. ログイン & APIの有効化
 #-------------------------------------------------
 
-# ログイン
-gcloud auth login
+# 秘密鍵を使用してログイン
+gcloud auth activate-service-account --key-file=key.json
 
-# ログイン確認
-gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin https://asia-northeast1-docker.pkg.dev
+# 認証状態の確認 (deployer-sa に * 印が付いてアクティブになっていれば完了です)
+gcloud auth list
+
+# Docker認証の更新（既に認証済みの場合はWARNメッセージが表示されるが無視でOK）
+gcloud auth configure-docker asia-northeast1-docker.pkg.dev
 
 # 必要なネットワークAPIの有効化
 gcloud services enable \
@@ -46,6 +50,7 @@ gcloud network-connectivity service-connection-policies create my-valkey-policy 
 # ⭐️ 作成所要時間: 約10分〜15分
 # ⚠️ インスタンスが起動している間のみ時間割課金が発生します (月額約3,300円目安)。
 # ⚠️ 検証が終わったら必ず本ファイル末尾の「サービス停止/削除」を実行して削除してください (削除するとデータは消えます)。
+
 gcloud memorystore instances create my-valkey \
     --location=asia-northeast1 \
     --node-type=shared-core-nano \
@@ -94,13 +99,14 @@ gcloud run deploy gcp-sample-backend \
     --region asia-northeast1 \
     --network=default \
     --subnet=default \
-    --set-env-vars VALKEY_HOST=10.146.0.20,VALKEY_PORT=6379,SESSION_SECRET=my-secure-session-secret-key-123 \
+        --set-env-vars VALKEY_HOST=10.146.0.25,VALKEY_PORT=6379,SESSION_SECRET=my-secure-session-secret-key-123 \
     --no-allow-unauthenticated
 
 # ⭐️ Frontend からのみ Backend へのアクセスを許可するため、IAM権限を付与します。
 # プロジェクト番号を取得して、デフォルトのCompute Engineサービスアカウントに起動元権限を付与
 PROJECT_NUMBER=$(gcloud projects describe gcp-sample-project-509110 --format="value(projectNumber)")
 
+# IAM権限付与（適用されるまで1分〜2分要します）
 gcloud run services add-iam-policy-binding gcp-sample-backend \
     --region=asia-northeast1 \
     --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
@@ -156,6 +162,118 @@ gcloud artifacts docker images delete \
     asia-northeast1-docker.pkg.dev/gcp-sample-project-509110/gcp-sample-repo/backend:latest \
     --delete-tags \
     --quiet
+
+# (任意) Artifact Registry リポジトリ自体も完全削除したい場合
+gcloud artifacts repositories delete gcp-sample-repo --location=asia-northeast1 --quiet
+
+
+----------------------------------------------------------------------------------------------------
+- デプロイユーザー作成
+----------------------------------------------------------------------------------------------------
+
+# "deployer-sa"ユーザを作成する
+gcloud iam service-accounts create deployer-sa \
+    --display-name="Deployer Service Account for GCP Sample" \
+    --project=gcp-sample-project-509110
+
+# プロジェクトIDとメールアドレスを宣言   
+PROJECT_ID="gcp-sample-project-509110"
+SA_EMAIL="deployer-sa@${PROJECT_ID}.iam.gserviceaccount.com"
+
+### 権限付与 ###
+# 1. Artifact Registry への書き込み権限 (Docker PUSH用)
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
+    --member="serviceAccount:${SA_EMAIL}" \
+    --role="roles/artifactregistry.writer"
+
+# 2. Cloud Run サービスの管理権限 (デプロイ用)
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
+    --member="serviceAccount:${SA_EMAIL}" \
+    --role="roles/run.admin"
+
+# 3. サービスアカウントユーザー権限 (Cloud Runへの実行アカウント割り当て用)
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
+    --member="serviceAccount:${SA_EMAIL}" \
+    --role="roles/iam.serviceAccountUser"
+
+# 4. IAMセキュリティ管理者権限 (Backendへのinvoker権限付与用)
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
+    --member="serviceAccount:${SA_EMAIL}" \
+    --role="roles/iam.securityAdmin"
+
+# 5. Memorystore (Valkey) 管理者権限
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
+    --member="serviceAccount:${SA_EMAIL}" \
+    --role="roles/memorystore.editor"
+
+# 6. ネットワーク接続管理者権限
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
+    --member="serviceAccount:${SA_EMAIL}" \
+    --role="roles/networkconnectivity.admin"
+
+# 7. API有効化権限
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
+    --member="serviceAccount:${SA_EMAIL}" \
+    --role="roles/serviceusage.serviceUsageAdmin"
+
+# 8. ネットワーク権限
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
+    --member="serviceAccount:${SA_EMAIL}" \
+    --role="roles/compute.networkAdmin"
+
+# リポジトリ管理権限
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
+    --member="serviceAccount:${SA_EMAIL}" \
+    --role="roles/artifactregistry.repoAdmin"
+
+# Artifact Registry リポジトリ管理者
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
+    --member="serviceAccount:${SA_EMAIL}" \
+    --role="roles/artifactregistry.repoAdmin"
+
+
+### ログイン設定 ###
+# 1. サービスアカウントキー (key.json) をローカルに作成・ダウンロード
+gcloud iam service-accounts keys create key.json \
+    --iam-account=deployer-sa@gcp-sample-project-509110.iam.gserviceaccount.com
+
+# 2. 作成した key.json を使って deployer-sa として直接認証（ログイン）
+gcloud auth activate-service-account --key-file=key.json
+
+# 3. 認証状態の確認 (deployer-sa に * 印が付いてアクティブになっていれば完了です)
+gcloud auth list
+
+# 4. Artifact Registry への Docker 認証を更新
+gcloud auth configure-docker asia-northeast1-docker.pkg.dev
+
+
+----------------------------------------------------------------------------------------------------
+- ログイン（オーナー）
+----------------------------------------------------------------------------------------------------
+
+# ログイン
+gcloud auth login
+
+# ログイン確認
+gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin https://asia-northeast1-docker.pkg.dev
+
+
+----------------------------------------------------------------------------------------------------
+- ログアウト
+----------------------------------------------------------------------------------------------------
+
+# 全アカウントからログアウト
+gcloud auth revoke --all
+
+# ログアウトの確認（No credentialed accounts.と表示されればOK）
+gcloud auth list
+
+# Keyを使用してログインする
+gcloud auth activate-service-account --key-file=key.json
+
+
+
+
 
 
 ----------------------------------------------------------------------------------------------------
