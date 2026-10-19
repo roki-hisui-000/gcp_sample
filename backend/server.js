@@ -3,6 +3,7 @@ const path = require('path');
 const session = require('express-session');
 const RedisStore = require('connect-redis').default;
 const { Redis } = require('ioredis');
+const geoip = require('geoip-lite'); 
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -12,6 +13,38 @@ app.set('trust proxy', 1);
 
 // JSONボディの解析
 app.use(express.json());
+
+// 国外からのアクセスを遮断する
+app.use((req, res, next) => {
+  let country;
+
+  // ローカル開発環境（localhostなど）の場合の処理
+  const isLocal = !process.env.K_SERVICE && process.env.NODE_ENV !== 'production';
+
+  if (isLocal) {
+    // ローカルテスト用として強制的に日本（'JP'）を割り当てる
+    // ※あえて海外からのアクセスをテストしたい場合は 'US' などに書き換えられます
+    country = process.env.LOCAL_TEST_COUNTRY || 'JP';
+    console.log(`[Local Development] Simulating country: ${country}`);
+  } else {
+      // 本番環境: プロキシ（Cloud Run / Frontend）から元のクライアントIPを抽出
+    const forwarded = req.headers['x-forwarded-for'];
+    const clientIp = forwarded ? forwarded.split(',')[0].trim() : req.ip;
+
+    // IPアドレスから国コードを取得 (例: 'JP', 'US')
+    const geo = geoip.lookup(clientIp);
+    country = geo ? geo.country : null;
+    console.log(`[Production] Client IP: ${clientIp}, Country: ${country}`);
+  }
+
+  // 日本(JP)以外からのアクセスの場合は403
+  const upperCountry = country ? country.toUpperCase() : null;
+  if (upperCountry !== 'JP') {
+    return res.status(403).send('Access Denied: This service is only available in Japan.');
+  }
+
+  next();
+});
 
 // Valkeyクライアントの初期化
 const valkey = new Redis({

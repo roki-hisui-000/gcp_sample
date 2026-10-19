@@ -50,7 +50,6 @@ gcloud network-connectivity service-connection-policies create my-valkey-policy 
 # ⭐️ 作成所要時間: 約10分〜15分
 # ⚠️ インスタンスが起動している間のみ時間割課金が発生します (月額約3,300円目安)。
 # ⚠️ 検証が終わったら必ず本ファイル末尾の「サービス停止/削除」を実行して削除してください (削除するとデータは消えます)。
-
 gcloud memorystore instances create my-valkey \
     --location=asia-northeast1 \
     --node-type=shared-core-nano \
@@ -99,7 +98,7 @@ gcloud run deploy gcp-sample-backend \
     --region asia-northeast1 \
     --network=default \
     --subnet=default \
-        --set-env-vars VALKEY_HOST=10.146.0.25,VALKEY_PORT=6379,SESSION_SECRET=my-secure-session-secret-key-123 \
+    --set-env-vars VALKEY_HOST=10.146.0.28,VALKEY_PORT=6379,SESSION_SECRET=my-secure-session-secret-key-123 \
     --no-allow-unauthenticated
 
 # ⭐️ Frontend からのみ Backend へのアクセスを許可するため、IAM権限を付与します。
