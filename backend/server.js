@@ -174,9 +174,47 @@ app.post('/api/message', async (req, res) => {
   res.json({ reply });
 });
 
+/**  以下API **/
+
+// 
+// 登録ユーザー一覧取得API (全件取得)
+app.get('/api/users', async (req, res) => {
+  try {
+    const users = await valkey.smembers('registered_users');
+    res.json({ users });
+  } catch (error) {
+    console.error('Failed to fetch registered users:', error);
+    res.status(500).json({ error: 'ユーザー一覧の取得に失敗しました。' });
+  }
+});
+
+//ユーザー削除
+app.delete('/api/user/:username', async (req, res) => {
+
+  const username = req.params.username;
+  if (!username || !username.trim()) {
+    return res.status(400).json({ error: 'Username is required' });
+  }
+
+  try {
+    // ValkeyのSet型からユーザーを削除
+    const removedCount = await valkey.srem('registered_users', username.trim());
+    if (removedCount === 0) {
+      return res.status(404).json({ error: '指定されたユーザー名は存在しません。' });
+    }
+    res.json({ success: true, message: 'ユーザーが正常に削除されました。', name: username });
+  } catch (error) {
+    console.error('Failed to delete user:', error);
+    res.status(500).json({ error: 'ユーザーの削除に失敗しました。', name: username });
+  }
+});
+
+
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
+
+
 
 
 
